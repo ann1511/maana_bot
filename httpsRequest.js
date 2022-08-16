@@ -62,8 +62,4 @@ export const makeRequest = ({ method, text, chatId, ...rest }) => {
 };
 
 export const sendMessage = ({ chatId, text }) =>
-  makeRequest({
-    chatId,
-    method: 'sendMessage',
-    text,
-  });
+  makeRequest({ method: 'sendMessage', chatId, text });

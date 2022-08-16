@@ -1,15 +1,12 @@
 import process from 'node:process';
 import fs from 'fs';
 
+import getUpdates from './actions/getUpdates.js';
+import setMyCommands from './actions/setMyCommands.js';
 import sendHelp from './actions/sendHelps.js';
-import httpsRequest, { sendMessage, makeRequest } from './httpsRequest.js';
-import {
-  getPath,
-  getQuery,
-  formatDate,
-  splitCountAndComment,
-  getHistoryStr,
-} from './utils.js';
+import sendUnprocessedUserInputResponse from './actions/sendUnprocessedUserInputResponse.js';
+import { sendMessage } from './httpsRequest.js';
+import { formatDate, splitCountAndComment, getHistoryStr } from './utils.js';
 
 import { COMMANDS } from './constants.js';
 
@@ -56,7 +53,7 @@ const processingCommand = (message) => {
 
     case COMMANDS.balance.command: {
       const balance = APP_DATA.data[message.from.id].bank.balance;
-      const text = `Ваш баланс равен ${balance} условных едениц`;
+      const text = `Ваш баланс равен ${balance} условных единиц`;
 
       return sendMessage({
         chatId: message.chat.id,
@@ -66,7 +63,7 @@ const processingCommand = (message) => {
 
     case COMMANDS.income.command: {
       const balance = APP_DATA.data[message.from.id].bank.balance;
-      const text = `Ваш баланс равен ${balance} условных едениц, введите сумму поступления и через пробел комментарий для истории`;
+      const text = `Ваш баланс равен ${balance} условных единиц, введите сумму поступления и через пробел комментарий для истории`;
       CURRENT_OPERATION = 'income';
 
       return sendMessage({
@@ -77,7 +74,7 @@ const processingCommand = (message) => {
 
     case COMMANDS.expense.command: {
       const balance = APP_DATA.data[message.from.id].bank.balance;
-      const text = `Ваш баланс равен ${balance} условных едениц, введите сумму списания и через пробел комментарий для истории`;
+      const text = `Ваш баланс равен ${balance} условных единиц, введите сумму списания и через пробел комментарий для истории`;
       CURRENT_OPERATION = 'expense';
 
       return sendMessage({
@@ -143,66 +140,24 @@ const processingBankOperation = (message) => {
   });
 };
 
-async function subscribe(query) {
-  const params = {
-    host: 'api.telegram.org',
-    method: 'GET',
-    path: `/${getPath('getUpdates')}?${getQuery(query)}`,
-  };
-
-  await makeRequest({
-    method: 'setMyCommands',
-    commands: JSON.stringify(
-      Object.values(COMMANDS).map(({ command, engDescription }) => ({
-        command,
-        description: engDescription,
-      }))
-    ),
+const mainProcessing = ({ result }) => {
+  result.forEach(({ message, callback_query, ...rest }) => {
+    // New incoming message of any kind - text, photo, sticker, etc.
+    // проверяем, что это действительно команда
+    if (message?.text && message.text[0] === '/') {
+      processingCommand(message);
+    } else if (parseInt(message.text)) {
+      processingBankOperation(message);
+    } else sendUnprocessedUserInputResponse(message);
   });
 
-  httpsRequest(params)
-    .then(({ result }) => {
-      result.forEach(({ message, callback_query, ...rest }) => {
-        const id = message?.chat?.id;
-        // New incoming message of any kind - text, photo, sticker, etc.
-        // проверяем, что это действительно команда
-        if (message?.text && message.text[0] === '/') {
-          processingCommand(message);
-        } else if (parseInt(message.text)) {
-          processingBankOperation(message);
-        }
-        // TODO: вынести весь этот елс в функцию
-        else if (message.photo) {
-          return sendMessage({
-            chatId: id,
-            text: 'Я не умею распознавать картинки.',
-          });
-        } else if (message.voice) {
-          return sendMessage({
-            chatId: id,
-            text: 'Я не понимаю голосовые сообщения, только текст, только по старинке.',
-          });
-        } else if (message.document) {
-          return sendMessage({
-            chatId: id,
-            text: 'Я не умею парсить документы.',
-          });
-        } else if (message.video || message.video_note) {
-          return sendMessage({
-            chatId: id,
-            text: 'Я не могу посмотреть видео.',
-          });
-        } else {
-          return sendMessage({
-            chatId: id,
-            text: 'Я тебя не понимамю, воспользуйся командой /help, чтоб узнать, что я умею.',
-          });
-        }
-      });
+  return result[0] && result[result.length - 1].update_id + 1;
+};
 
-      return result[0] && result[result.length - 1].update_id + 1;
-    })
-    .then((offset) => setTimeout(() => subscribe({ offset }), 5000));
+async function subscribe() {
+  await setMyCommands();
+
+  getUpdates(mainProcessing);
 }
 
 // process.on('uncaughtException', function (error) {
@@ -216,16 +171,11 @@ async function subscribe(query) {
 process.on('SIGINT', () => {
   let data = JSON.stringify(APP_DATA);
   fs.writeFileSync('./app_data.json', data);
-  console.log({ write: APP_DATA });
+
+  console.log('Received SIGINT');
   process.exit();
 });
 
-// Using a single function to handle multiple signals
-function handle(signal) {
-  console.log(`Received ${signal}`);
-}
-
-process.on('SIGINT', handle);
-process.on('SIGTERM', handle);
+process.on('SIGTERM', () => console.log('Received SIGTERM SIGTERM SIGTERM'));
 
 subscribe();

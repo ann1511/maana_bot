@@ -10,7 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "prettier": "^2.7.1"
+    "prettier": "2.7.1"
   },
   "type": "module",
   "devDependencies": {},
